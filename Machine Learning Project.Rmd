@@ -1,26 +1,31 @@
 ---
 title: "Machine Learning Project"
 author: "Kim Aquilino"
-date: "Tuesday, December 02, 2014"
-output: html_document
+date: "Friday, December 19, 2014"
+output:
+  html_document:
+    fig_width: 8
+    theme: flatly
 ---
 
-```{r}
+```{r echo=FALSE, warning=FALSE,message=FALSE}
 #setwd("C://Users//kaquilin//Documents//Class//Machine Learning//")
 library(caret)
 ```
 
+****
+
 ## Objective
 
-The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to classify if their barbell lifts were performed correctly and if not, classify the error based on common mistakes. 
+The goal of this project is to use data from accelerometers positioned on the belt, forearm, arm, and dumbell of 6 study participants to classify if their barbell lifts were performed correctly and if not, classify the error based on common mistakes. 
 
 ## Data Source
- 
-For the training data, six participants were asked to perform one set of 10 repetitions of bicep curls correctly and incorrectly in 5 different ways: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). We will use this data to develop a prediction model. More information on the dataset is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). The study paper is cited here:
 
->  Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+The data for this project is described in the Weight Lifting Exercise Dataset section at http://groupware.les.inf.puc-rio.br/har. 
 
-The data sets are [train](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [test](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). Here we download the datasets, load the training data and set/coerce to the proper classes.
+For the training data, the six participants were asked to perform one set of 10 repetitions of bicep curls correctly and incorrectly in 5 different ways: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). We will use this data to develop a machine learning algorithm for predicting activity quality.
+
+There are two data sets provided for the course project: [train](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and [test](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). Here we download the datasets, load the training data and coerce the measurement variables to numeric.
 
 ```{r}
 train.url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
@@ -29,43 +34,36 @@ test.url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
 if(!file.exists("train.csv")) download.file(train.url, "train.csv")
 if(!file.exists("test.csv")) download.file(test.url, "test.csv")
 
-column.classes <- c("character","factor","integer","integer","character","factor","integer",rep("character",152),"factor")
-
-train <- read.csv("train.csv",
-                  colClasses=column.classes,
-                  na.strings=c('""',"NA","#DIV/0!"))
-# convert meaasures to numeric
-for(i in c(8:ncol(train)-1)) {
-    train[,i] <- as.numeric(train[,i])
-}
+train <- read.csv("train.csv", na.strings=c('""',"NA","#DIV/0!"))
+for(i in c(8:ncol(train)-1)) train[,i] <- as.numeric(train[,i])
 dim(train)
 ```
 
-## Pre-Process Data
+## Pre-Processing
 
-Let's start by partitioning the _training_ data set into _training_ and _validation_ partitions. This will allow us to see how the results of our prediction model will generalize to an independent data set. By default, the random sampling is done within the classes, since it is a factor, in an attempt to balance the class distributions within the splits. 
+We partition the training data set into _training_ and _validation_ partitions using a 75/25% split so that we may perform cross-validation. This will allow us to see how the results of our prediction model will generalize to an independent data set. 
 
 ```{r}
 set.seed(4567)
 in.train <- createDataPartition(y=train$classe,p=.75,list=FALSE)
 training <- train[in.train,]
 validation <- train[-in.train,]
-dim(training)
-dim(validation)
-colnames(training)
+dim(training); dim(validation)
 ```
 
-Variables in the training dataset with all NA or 0 values will be removed. The training data includes derived features (mean, variance, etc.) for sliding windows of time. These values are populated on overservations where `new_window=1`. Since the test set only provides specific instances of time, we will not be able to derive these sliding window features or use them as features and therefore will remove them from the training set. We will also remove non-measurement variables such as times, particpant's name, and window references. The training set is reduced from 160 columns to 53.
+The training data includes derived aggregate features (mean, variance, etc.) for sliding windows of time (as quoted below) which are populated in the dataset on observations where `new_window = 1`. Since the test data _does not_ include measurements over windows of time, I chose to remove these features for model training.
 
-> For feature extraction we used a sliding window approach with different lengths from 0.5 second to 2.5 seconds, with 0.5 second overlap. In each step of the sliding window approach we calculated features on the Euler angles (roll, pitch and yaw), as well as the raw accelerometer, gyroscope and
-magnetometer readings. For the Euler angles of each of the four sensors we calculated eight features: mean, variance, standard deviation, max, min, amplitude, kurtosis and skewness, generating in total 96 derived feature sets.
+> For feature extraction we used a sliding window approach with different lengths from 0.5 second to 2.5 seconds, with 0.5 second overlap. In each step of the sliding window approach we calculated features on the Euler angles (roll, pitch and yaw), as well as the raw accelerometer, gyroscope and magnetometer readings. For the Euler angles of each of the four sensors we calculated eight features: mean, variance, standard deviation, max, min, amplitude, kurtosis and skewness, generating in total 96 derived feature sets.
+
+Variables in the training dataset with all NA or 0 values and non-measurement variables (times, name, window references) are removed, reducing the training set from 160 variables to 53.
 
 ```{r}
-# identify columns where all values are 0 or NA, excluding rows whose new_window value is "yes"
+# identify columns where all values are 0 or NA or the new_window value is "yes"
 cols <- colnames(training)
 nacols <- c()
 for(i in cols) {
-    if (sum(!(is.na(training[,i]) | training[,i] == 0 | training[,"new_window"] == "yes")) == 0) {
+    if (sum(!(is.na(training[,i]) | training[,i] == 0 | 
+                 training[,"new_window"] == "yes")) == 0) {
        nacols <- c(nacols,i) 
        }
 }
@@ -75,47 +73,54 @@ dim(training)
 ```
 
 ## Data Summary & Exploration
-Here is a summary of our tidy dataset and a feature plot showing how each measurement relates to the `classe` variable. We see that there is an outlier in the gyroscope measurements for the dumbbell and and forearm sensors. It is identified as a single observation and removed from the dataset. 
+Here is a summary of our tidy dataset showing the min, max, and mean values for each variable.
 
-```{r}
-colnames(training)
-summary(training)
-
-featurePlot(x=training[,1:51],
-            y=training$classe,
-            plot="box",
-            scales=list(y=list(relation="free")),
-            auto.key=list(columns=3))
-training[training$gyros_dumbbell_x<(-200),]
-
-# remove the outlier seen on the forearm and dumbbell and gyroscope
-training <- training[!training$gyros_dumbbell_x<(-200),]
-dim(training)
-featurePlot(x=training[,1:51],
-            y=training$classe,
-            plot="box",
-            scales=list(y=list(relation="free")),
-            auto.key=list(columns=3))
-
+```{r fig.height=5,fig.width=9}
+cbind(min=round(sapply(training[-53],min),2),max=round(sapply(training[-53],max),2),mean=round(sapply(training[-53],mean),2))
 ```
 
-We are ready to train the model. Since it is a categorical outcome (or Classification model), we will use the random forest method with maximum accuracy (fraction correct) for optimal model selection. 
 
-```{r}
+A boxplot of the gyroscope on both the dumbbell and forearm in the x direction reflects an outlier that is well out of the range of all other values. It is a single observation and I chose to remove it from the dataset.  
+
+```{r echo=FALSE,fig.height=4, fig.width=8}
+par(mfrow=c(1,2))
+boxplot(gyros_dumbbell_x ~ classe,data=training,xlab="classe",ylab="gyros_dumbbell_x")
+boxplot(gyros_forearm_x ~ classe,data=training,xlab="classe",ylab="gyros_forearm_x")
+training <- training[!training$gyros_dumbbell_x<(-200),]
+dim(training)
+```
+
+Here is a feature plot showing how each measurement relates to the `classe` variable. 
+
+```{r fig.height=10, fig.width=8}
+par(mar=c(3,2,2,1))
+featurePlot(x=training[,1:52],
+            y=training$classe,
+            plot="box",
+            scales=list(y=list(relation="free")),
+            layout=c(5,11))
+```
+
+## Model Training
+
+We train a classification model to predict the `classe` outcome using the random forest method with maximum accuracy (fraction correct) for optimal model selection. 
+
+```{r cache=TRUE,warning=FALSE,message=FALSE}
 set.seed(1235)
 fit <- train(classe ~ .,data=training,method="rf",metric="Accuracy",maximize=TRUE)
 fit
 ```
 
-Let's take a look at the important variables. For random forests, importance is defined as follows in the R package:
+The model results show 98.9% accuracy. Let's take a look at the most important variables. For random forests, importance is defined in the R package as follows:
 
-> "For each tree, the prediction accuracy on the out-of-bag portion of the data is recorded. Then the same is done after permuting each predictor variable. The difference between the two accuracies are then averaged over all trees, and normalized by the standard error. For regression, the MSE is computed on the out-of-bag data for each tree, and then the same computed after permuting a variable. The differences are averaged and normalized by the standard error. If the standard error is equal to 0 for a variable, the division is not done." 
+> For each tree, the prediction accuracy on the out-of-bag portion of the data is recorded. Then the same is done after permuting each predictor variable. The difference between the two accuracies are then averaged over all trees, and normalized by the standard error. For regression, the MSE is computed on the out-of-bag data for each tree, and then the same computed after permuting a variable. The differences are averaged and normalized by the standard error. If the standard error is equal to 0 for a variable, the division is not done.
 
-The most important variables determined by the `train` function are shown below.
-```{r}
-varImp(fit, scale=FALSE)
+The most important features determined by the `train` function are shown below. The roll measurement on the belt contributes most to the model, among all features in the training set. 
+```{r fig.height=7,fig.width=8,echo=FALSE, warning=FALSE,message=FALSE}
 plot(varImp(fit,scale=FALSE,top=20))
 ```
+
+## Model Evaluation
 
 Let's predict on the validation set and check the results by looking at the confusion matrix and overall statistics.
 
@@ -123,34 +128,23 @@ Let's predict on the validation set and check the results by looking at the conf
 predictions <- predict(fit,newdata=validation)
 confusionMatrix(predictions,validation$classe) #expected out of sample error rate
 error.rate <- sum(predictions!=validation$classe)/length(predictions) * 100
+error.rate
 ```
 
-The expected out of sample error rate is `{r} error.rate`.
+The predictions on the validation set are 99% accurate. The expected out of sample error rate is `r round(error.rate,2)`%. This model appears to perform well and will be used to predict the `classe` on the test data.
 
-#str(train)
-# convert raw timestamp to a new datetime variable and remove the original date variables
-#train$datetime <- as.POSIXct(train$raw_timestamp_part_1,origin="1970-01-01")
-## Background
-
-The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. 
-
-
-You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
-
-## For k-fold cross validation
-
-To minimize variability, we will use k-fold cross validation. With this method, the data set is randomly partitioned into `{r} k=10` subsets of equal size. The cross validation is repeated `{r}k` times, each time using a different subset as the _validation_ set and all others as the _training_ set. The validation results are then averaged. 
-
-```{r}
-set.seed(4567)
-folds <- createFolds(y=train$classe,k=10)
-sapply(folds,length)
+```{r echo=FALSE}
+test <- read.csv("test.csv", na.strings=c('""',"NA","#DIV/0!"))
+for(i in c(8:ncol(test)-1)) {           # convert measures to numeric
+    test[,i] <- as.numeric(test[,i])
+}
+answers <- predict(fit,test)
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
 ```
-
-fit$finalModel$confusion
-
-fit$times
-fit$control
-fit$times
-fit$finalModel
-fit$bestTune
